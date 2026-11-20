@@ -1,6 +1,7 @@
 import os
 import tempfile
 import unittest
+from datetime import date, timedelta
 from pathlib import Path
 from unittest.mock import patch
 
@@ -15,7 +16,7 @@ os.environ["BUNGELENS_DATABASE_PATH"] = str(
     Path(TEMPORARY_DIRECTORY.name) / "api.sqlite3"
 )
 
-from app.main import app
+from app.main import _select_daily_article, app
 
 
 class ApiTests(unittest.TestCase):
@@ -41,6 +42,37 @@ class ApiTests(unittest.TestCase):
             self.client.get("/api/lessons/constitution-rights").json()["title"],
             "How the Constitution protects your rights",
         )
+
+    def test_daily_constitution_section_is_sourced_and_rotates_by_day(self) -> None:
+        response = self.client.get("/api/constitution/daily")
+
+        self.assertEqual(response.status_code, 200, response.text)
+        daily = response.json()
+        articles = self.client.get("/api/constitution/articles").json()["items"]
+        self.assertEqual(len(articles), 6)
+        self.assertIn(daily["item"]["id"], {article["id"] for article in articles})
+        self.assertEqual(
+            daily["item"]["sourceUrl"],
+            "https://www.parliament.go.ke/sites/default/files/2017-05/"
+            "The_Constitution_of_Kenya_2010.pdf",
+        )
+
+        today = date(2026, 5, 1)
+        self.assertEqual(
+            _select_daily_article(articles, today),
+            _select_daily_article(articles, today),
+        )
+        self.assertNotEqual(
+            _select_daily_article(articles, today),
+            _select_daily_article(articles, today + timedelta(days=1)),
+        )
+
+    def test_daily_constitution_section_reports_missing_verified_content(self) -> None:
+        with patch("app.main.list_records", return_value=[]):
+            response = self.client.get("/api/constitution/daily")
+
+        self.assertEqual(response.status_code, 503)
+        self.assertIn("No verified Constitution sections", response.json()["detail"])
 
     def test_document_upload_persists_extracted_text_for_chat(self) -> None:
         document = pymupdf.open()
@@ -79,7 +111,7 @@ class ApiTests(unittest.TestCase):
     def test_unmatched_chat_does_not_claim_to_be_grounded(self) -> None:
         response = self.client.post(
             "/api/chat",
-            json={"question": "Question with no indexed source terms"},
+            json={"question": "qzxvjhtrm blorflezz"},
         )
 
         self.assertEqual(response.status_code, 200)

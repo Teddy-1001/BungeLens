@@ -4,7 +4,7 @@ import os
 import re
 import uuid
 from contextlib import asynccontextmanager
-from datetime import datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 from typing import Any
 
 import pymupdf
@@ -92,6 +92,23 @@ class ImpactQuestion(BaseModel):
 def _collection(kind: str, query: str = "") -> dict[str, Any]:
     items = list_records(kind, query)
     return {"items": items, "total": len(items)}
+
+
+def _select_daily_article(
+    articles: list[dict[str, Any]],
+    day: date,
+) -> dict[str, Any] | None:
+    if not articles:
+        return None
+
+    ordered_articles = sorted(
+        articles,
+        key=lambda article: (
+            int(article.get("number", 0)),
+            str(article.get("id", "")),
+        ),
+    )
+    return ordered_articles[day.toordinal() % len(ordered_articles)]
 
 
 def _source_context(query: str, maximum: int = 4) -> tuple[str, list[dict[str, str]]]:
@@ -260,6 +277,18 @@ def constitution_articles(
     query: str = Query(default="", max_length=200),
 ) -> dict[str, Any]:
     return _collection("article", query)
+
+
+@app.get("/api/constitution/daily")
+def daily_constitution_article() -> dict[str, Any]:
+    today = (datetime.now(timezone.utc) + timedelta(hours=3)).date()
+    article = _select_daily_article(list_records("article"), today)
+    if article is None:
+        raise HTTPException(
+            status_code=503,
+            detail="No verified Constitution sections are available yet.",
+        )
+    return {"date": today.isoformat(), "item": article}
 
 
 @app.get("/api/constitution/articles/{article_id}")

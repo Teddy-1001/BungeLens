@@ -37,6 +37,14 @@ shared table; `kind` distinguishes the record type. When `DATABASE_URL` is
 unset, the backend uses the local SQLite database at
 `app/data/bungelens.sqlite3` for development and tests.
 
+On startup, the backend seeds six Constitution sections (Articles 22, 35, 43,
+47, 48, and 49) with excerpts from the Parliament of Kenya's official
+[Constitution PDF](https://www.parliament.go.ke/sites/default/files/2017-05/The_Constitution_of_Kenya_2010.pdf)
+and bilingual plain-language learning notes. `GET /api/constitution/daily`
+returns a deterministic selection for the current day in Kenya; the original
+excerpt is in English and the explanatory notes are for civic learning, not
+legal advice.
+
 Start the API from the repository root:
 
 ```powershell

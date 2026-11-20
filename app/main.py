@@ -375,40 +375,95 @@ def impact_analysis(request: ImpactQuestion) -> dict[str, Any]:
 @app.post("/api/chat")
 def chat(request: ChatQuestion) -> dict[str, Any]:
     question = request.question.strip()
-    if not question:
-        raise HTTPException(status_code=400, detail="Please enter a question.")
 
-    if request.document_id:
-        record = get_record("document", request.document_id)
-        document_text = get_record_text("document", request.document_id)
-        if record is None or not document_text:
-            raise HTTPException(
-                status_code=404,
-                detail="The uploaded document was not found or has no readable text.",
+    # Validate question
+    if not question:
+        raise HTTPException(
+            status_code=400,
+            detail="Please enter a question.",
+        )
+
+    if len(question) > 5000:
+        raise HTTPException(
+            status_code=400,
+            detail="Your question is too long. Please keep it under 5,000 characters.",
+        )
+
+    try:
+        # ==========================================
+        # DOCUMENT-SPECIFIC QUESTION
+        # ==========================================
+
+        if request.document_id:
+            record = get_record("document", request.document_id)
+            document_text = get_record_text(
+                "document",
+                request.document_id,
             )
-        source = {
-            "id": request.document_id,
-            "kind": "document",
-            "title": str(record.get("title") or record["id"]),
-            "sourceUrl": str(record.get("sourceUrl") or ""),
-        }
-        context = document_text[:MAX_CONTEXT_CHARS]
-        sources = [source]
-    else:
-        context, sources = _source_context(question)
-        if not context:
-            return {
-                "answer": (
-                    "I could not find matching imported source material yet. "
-                    "Try again after the official records have been imported."
-                ),
-                "sources": [],
-                "grounded": False,
+
+            if record is None or not document_text:
+                raise HTTPException(
+                    status_code=404,
+                    detail="The uploaded document was not found or has no readable text.",
+                )
+
+            source = {
+                "id": request.document_id,
+                "kind": "document",
+                "title": str(record.get("title") or record["id"]),
+                "sourceUrl": str(record.get("sourceUrl") or ""),
             }
 
-    answer = _ask_with_sources(question, context, sources)
-    return {"answer": answer, "sources": sources, "grounded": True}
+            context = document_text[:MAX_CONTEXT_CHARS]
+            sources = [source]
 
+        # ==========================================
+        # GENERAL CIVIC QUESTION
+        # ==========================================
+
+        else:
+            context, sources = _source_context(question)
+
+            if not context:
+                return {
+                    "answer": (
+                        "I could not find matching imported source material yet. "
+                        "Try again after the official records have been imported."
+                    ),
+                    "sources": [],
+                    "grounded": False,
+                }
+
+        # ==========================================
+        # GENERATE ANSWER
+        # ==========================================
+
+        answer = _ask_with_sources(
+            question,
+            context,
+            sources,
+        )
+
+        return {
+            "answer": answer,
+            "sources": sources,
+            "grounded": True,
+        }
+
+    except HTTPException:
+        raise
+
+    except GeminiConfigurationError as error:
+        raise HTTPException(
+            status_code=503,
+            detail=str(error),
+        ) from error
+
+    except GeminiRequestError as error:
+        raise HTTPException(
+            status_code=502,
+            detail=str(error),
+        ) from error
 
 @app.post("/documents/upload", include_in_schema=False)
 @app.post("/api/documents/upload")
